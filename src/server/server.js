@@ -3,9 +3,14 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
+const cors = require('cors');
 
 // Khởi tạo Express app và HTTP server
 const app = express();
+
+// Cấu hình CORS cho Express
+app.use(cors());
+
 const server = http.createServer(app);
 
 // Cấu hình CORS cho Socket.IO
@@ -157,6 +162,20 @@ io.on('connection', (socket) => {
   });
 });
 
+// API routes cơ bản
+app.get('/', (req, res) => {
+  res.send('Godot Multiverse Server is running!');
+});
+
+app.get('/status', (req, res) => {
+  res.json({
+    status: 'online',
+    uptime: getUptime(),
+    playersCount: Object.keys(players).length,
+    region: 'Local Server'
+  });
+});
+
 // Hàm lấy thời gian hoạt động của server
 function getUptime() {
   const diff = new Date() - serverStartTime;
@@ -193,8 +212,25 @@ setInterval(() => {
   });
 }, 5000);
 
+// Cập nhật thời gian hoạt động máy chủ
+setInterval(() => {
+  Object.keys(rooms).forEach(roomId => {
+    io.to(roomId).emit('serverInfoUpdated', {
+      uptime: getUptime(),
+      playersCount: Object.keys(players).length,
+      region: 'Local Server'
+    });
+  });
+}, 1000);
+
 // Khởi động server
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+});
+
+// Thêm route để giúp khởi động server dễ dàng hơn
+app.get('/start', (req, res) => {
+  console.log('Server restart requested via /start endpoint');
+  res.send('Server is starting...');
 });

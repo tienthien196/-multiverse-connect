@@ -24,6 +24,9 @@ interface ServerToClientEvents {
   playerUpdated: (data: Partial<Player>) => void;
   newHost: (data: { id: string }) => void;
   requestPing: () => void;
+  connect: () => void;
+  connect_error: (error: Error) => void;
+  disconnect: () => void;
 }
 
 interface ClientToServerEvents {
@@ -33,17 +36,18 @@ interface ClientToServerEvents {
   updateStatus: (data: { status: 'active' | 'idle' | 'away' }) => void;
 }
 
+// Chuyển các chuỗi sự kiện thành các hằng số tương ứng với các sự kiện đã định nghĩa
 export const SOCKET_EVENTS = {
-  REGISTERED: 'registered',
-  PLAYERS_LIST: 'playersList',
-  PLAYER_JOINED: 'playerJoined',
-  PLAYER_LEFT: 'playerLeft',
-  PLAYER_UPDATED: 'playerUpdated',
-  NEW_HOST: 'newHost',
-  REQUEST_PING: 'requestPing',
-  CONNECT: 'connect',
-  CONNECT_ERROR: 'connect_error',
-  DISCONNECT: 'disconnect'
+  REGISTERED: 'registered' as const,
+  PLAYERS_LIST: 'playersList' as const,
+  PLAYER_JOINED: 'playerJoined' as const,
+  PLAYER_LEFT: 'playerLeft' as const,
+  PLAYER_UPDATED: 'playerUpdated' as const,
+  NEW_HOST: 'newHost' as const,
+  REQUEST_PING: 'requestPing' as const,
+  CONNECT: 'connect' as const,
+  CONNECT_ERROR: 'connect_error' as const,
+  DISCONNECT: 'disconnect' as const
 };
 
 class SocketService {
@@ -107,42 +111,35 @@ class SocketService {
       
       this.updateConnectionStatus('connecting');
       
-      // Xác định URL kết nối dựa trên host và port
       let serverUrl = `http://${host}:${port}`;
       
       try {
         this.socket = io(serverUrl);
         
-        // Khi kết nối thành công
-        this.socket.on(SOCKET_EVENTS.CONNECT, () => {
+        // Sử dụng interface ServerToClientEvents cho các sự kiện
+        this.socket.on('connect', () => {
           console.log('Connected to server');
-          
-          // Đăng ký thông tin người chơi
           this.socket?.emit('register', { username, host, port });
         });
         
-        // Xử lý khi đăng ký thành công
-        this.socket.on(SOCKET_EVENTS.REGISTERED, ({ playerId, isHost, serverInfo }) => {
+        this.socket.on('registered', ({ playerId, isHost, serverInfo }) => {
           this.playerId = playerId;
           this.updateConnectionStatus('online');
           this.updateServerInfo(serverInfo);
           resolve();
         });
         
-        // Nhận danh sách người chơi
-        this.socket.on(SOCKET_EVENTS.PLAYERS_LIST, (players) => {
+        this.socket.on('playersList', (players) => {
           this.updatePlayersList(players);
         });
         
-        // Cập nhật khi có người chơi mới
-        this.socket.on(SOCKET_EVENTS.PLAYER_JOINED, ({ player, playersCount }) => {
+        this.socket.on('playerJoined', ({ player, playersCount }) => {
           this.updatePlayersList([...this.playersList, player]);
           this.updateServerInfo({ playersCount });
           toast.info(`${player.username} đã tham gia`);
         });
         
-        // Cập nhật khi có người chơi rời đi
-        this.socket.on(SOCKET_EVENTS.PLAYER_LEFT, ({ playerId, playersCount }) => {
+        this.socket.on('playerLeft', ({ playerId, playersCount }) => {
           const player = this.playersList.find(p => p.id === playerId);
           if (player) {
             toast.info(`${player.username} đã rời đi`);
@@ -152,8 +149,7 @@ class SocketService {
           this.updateServerInfo({ playersCount });
         });
         
-        // Cập nhật thông tin người chơi
-        this.socket.on(SOCKET_EVENTS.PLAYER_UPDATED, (playerData) => {
+        this.socket.on('playerUpdated', (playerData) => {
           this.updatePlayersList(
             this.playersList.map(p => 
               p.id === playerData.id ? { ...p, ...playerData } : p
@@ -161,23 +157,20 @@ class SocketService {
           );
         });
         
-        // Xử lý yêu cầu ping
-        this.socket.on(SOCKET_EVENTS.REQUEST_PING, () => {
+        this.socket.on('requestPing', () => {
           const startTime = Date.now();
           this.socket?.emit('ping', ({ timestamp }) => {
             this.socket?.emit('pong', { startTime });
           });
         });
         
-        // Xử lý lỗi kết nối
-        this.socket.on(SOCKET_EVENTS.CONNECT_ERROR, (error) => {
+        this.socket.on('connect_error', (error) => {
           console.error('Connection error:', error);
           this.updateConnectionStatus('offline');
           reject(new Error('Could not connect to server'));
         });
         
-        // Xử lý ngắt kết nối
-        this.socket.on(SOCKET_EVENTS.DISCONNECT, () => {
+        this.socket.on('disconnect', () => {
           console.log('Disconnected from server');
           this.updateConnectionStatus('offline');
           this.updatePlayersList([]);
