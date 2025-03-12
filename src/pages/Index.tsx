@@ -6,19 +6,32 @@ import ConnectionForm from '@/components/ConnectionForm';
 import ServerStats from '@/components/ServerStats';
 import PlayersList from '@/components/PlayersList';
 import ConnectionLogs from '@/components/ConnectionLogs';
-import socketService from '@/services/socketService';
 import { v4 as uuidv4 } from 'uuid';
+
+// Mock data for players
+const initialPlayers = [
+  {
+    id: '1',
+    username: 'Server',
+    ping: 0,
+    isHost: true,
+    status: 'active' as const,
+  }
+];
+
+// Function to generate a random log entry
+const generateLogEntry = (message: string, type: 'info' | 'warning' | 'error' | 'success') => ({
+  id: uuidv4(),
+  timestamp: new Date(),
+  message,
+  type,
+});
 
 const Index = () => {
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline' | 'connecting'>('offline');
-  const [playersList, setPlayersList] = useState<any[]>([]);
+  const [playersList, setPlayersList] = useState([] as any[]);
   const [logs, setLogs] = useState<any[]>([
-    {
-      id: uuidv4(),
-      timestamp: new Date(),
-      message: 'Hệ thống đã khởi tạo và sẵn sàng kết nối',
-      type: 'info'
-    },
+    generateLogEntry('Server initialized and ready for connections', 'info'),
   ]);
   const [serverStats, setServerStats] = useState({
     ping: 0,
@@ -26,65 +39,107 @@ const Index = () => {
     uptime: '00:00:00',
     region: 'Local',
   });
+  const [uptimeSeconds, setUptimeSeconds] = useState(0);
   
-  // Đăng ký lắng nghe các sự kiện từ socketService
-  useEffect(() => {
-    // Lắng nghe sự thay đổi trạng thái kết nối
-    const unsubscribeConnection = socketService.addConnectionListener((status) => {
-      setConnectionStatus(status);
-      
-      // Ghi log khi trạng thái kết nối thay đổi
-      if (status === 'connecting') {
-        addLog('Đang kết nối đến máy chủ...', 'info');
-      } else if (status === 'online') {
-        addLog('Đã kết nối thành công đến máy chủ', 'success');
-      } else if (status === 'offline') {
-        addLog('Đã ngắt kết nối khỏi máy chủ', 'info');
+  // Handle connection attempt
+  const handleConnect = (host: string, port: number, username: string) => {
+    setConnectionStatus('connecting');
+    
+    // Add connection attempt log
+    setLogs(prev => [...prev, generateLogEntry(`Attempting to connect to ${host}:${port} as ${username}`, 'info')]);
+    
+    // Simulate connection process
+    setTimeout(() => {
+      // 80% chance of successful connection
+      if (Math.random() < 0.8) {
+        setConnectionStatus('online');
+        setLogs(prev => [...prev, generateLogEntry(`Successfully connected to ${host}:${port}`, 'success')]);
+        
+        const newPlayer = {
+          id: uuidv4(),
+          username,
+          ping: Math.floor(Math.random() * 20) + 10,
+          isHost: false,
+          status: 'active' as const,
+        };
+        
+        setPlayersList([...initialPlayers, newPlayer]);
+        
+        setServerStats(prev => ({
+          ...prev,
+          ping: Math.floor(Math.random() * 15) + 5,
+          playersOnline: 2,
+        }));
+        
+        toast.success("Successfully connected to server!");
+      } else {
+        setConnectionStatus('offline');
+        setLogs(prev => [...prev, generateLogEntry(`Failed to connect to ${host}:${port}: Connection timeout`, 'error')]);
+        toast.error("Failed to connect to server");
       }
-    });
+    }, 2000);
+  };
+  
+  // Handle disconnection
+  const handleDisconnect = () => {
+    setLogs(prev => [...prev, generateLogEntry('Disconnecting from server...', 'info')]);
     
-    // Lắng nghe danh sách người chơi
-    const unsubscribePlayers = socketService.addPlayersListener((players) => {
-      setPlayersList(players);
-    });
+    setTimeout(() => {
+      setConnectionStatus('offline');
+      setPlayersList([]);
+      setServerStats(prev => ({
+        ...prev,
+        ping: 0,
+        playersOnline: 0,
+      }));
+      setUptimeSeconds(0);
+      setLogs(prev => [...prev, generateLogEntry('Disconnected from server', 'info')]);
+      toast.info("Disconnected from server");
+    }, 1000);
+  };
+  
+  // Update uptime when connected
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
     
-    // Lắng nghe thông tin máy chủ
-    const unsubscribeServerInfo = socketService.addServerInfoListener((info) => {
-      setServerStats({
-        ping: 0, // Sẽ được cập nhật riêng
-        playersOnline: info.playersCount,
-        uptime: info.uptime,
-        region: info.region,
-      });
-    });
+    if (connectionStatus === 'online') {
+      interval = setInterval(() => {
+        setUptimeSeconds(prev => prev + 1);
+        
+        // Occasionally add random server logs
+        if (Math.random() < 0.05) {
+          const randomMessages = [
+            { message: 'Received ping from client', type: 'info' as const },
+            { message: 'Processing game state update', type: 'info' as const },
+            { message: 'Network buffer optimized', type: 'success' as const },
+            { message: 'Client requested world data', type: 'info' as const },
+            { message: 'Packet loss detected, retransmitting', type: 'warning' as const },
+          ];
+          
+          const randomMessage = randomMessages[Math.floor(Math.random() * randomMessages.length)];
+          setLogs(prev => [...prev, generateLogEntry(randomMessage.message, randomMessage.type)]);
+        }
+      }, 1000);
+    }
     
     return () => {
-      // Hủy đăng ký lắng nghe khi component unmount
-      unsubscribeConnection();
-      unsubscribePlayers();
-      unsubscribeServerInfo();
+      if (interval) clearInterval(interval);
     };
-  }, []);
+  }, [connectionStatus]);
   
-  // Thêm log mới
-  const addLog = (message: string, type: 'info' | 'warning' | 'error' | 'success') => {
-    setLogs(prev => [...prev, {
-      id: uuidv4(),
-      timestamp: new Date(),
-      message,
-      type,
-    }]);
-  };
-  
-  // Xử lý kết nối
-  const handleConnect = (host: string, port: number, username: string) => {
-    addLog(`Đang kết nối đến ${host}:${port} với tên ${username}`, 'info');
-  };
-  
-  // Xử lý ngắt kết nối
-  const handleDisconnect = () => {
-    addLog('Đang ngắt kết nối khỏi máy chủ...', 'info');
-  };
+  // Format uptime for display
+  useEffect(() => {
+    const hours = Math.floor(uptimeSeconds / 3600);
+    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+    const seconds = uptimeSeconds % 60;
+    
+    const formattedUptime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    
+    setServerStats(prev => ({
+      ...prev,
+      uptime: formattedUptime,
+    }));
+  }, [uptimeSeconds]);
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-background">
@@ -104,8 +159,8 @@ const Index = () => {
             </h1>
           </div>
           <p className="text-center text-muted-foreground max-w-2xl">
-            Giao diện kết nối máy chủ Godot multiplayer trực quan và đẹp mắt.
-            Kết nối liền mạch đến các thế giới game và tương tác với người chơi khác.
+            A beautiful and intuitive interface for connecting to Godot multiplayer servers.
+            Seamlessly join game worlds and interact with other players.
           </p>
         </header>
         
